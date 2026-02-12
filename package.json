@@ -1,0 +1,33 @@
+{
+  "name": "mclsp",
+  "version": "0.1.0",
+  "description": "MCP server bridging coding agents to LSP capabilities",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mclsp": "dist/index.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/carldaws/mclsp.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "chokidar": "^4.0.0",
+    "picomatch": "^4.0.0",
+    "vscode-languageserver-protocol": "^3.17.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/picomatch": "^3.0.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "servers": {
+    "typescript": {
+      "command": ["typescript-language-server", "--stdio"],
+      "filePatterns": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"],
+      "rootMarkers": ["package.json", "tsconfig.json"]
+    },
+    "rust": {
+      "command": ["rust-analyzer"],
+      "filePatterns": ["**/*.rs"],
+      "rootMarkers": ["Cargo.toml"]
+    },
+    "python": {
+      "command": ["pylsp"],
+      "filePatterns": ["**/*.py"],
+      "rootMarkers": ["pyproject.toml", "setup.py", "requirements.txt"]
+    }
+  }
+}
