@@ -1,9 +1,0 @@
-{
-  "servers": {
-    "typescript": {
-      "command": ["typescript-language-server", "--stdio"],
-      "filePatterns": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"],
-      "rootMarkers": ["package.json", "tsconfig.json"]
-    }
-  }
-}

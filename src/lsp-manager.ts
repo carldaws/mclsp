@@ -1,77 +1,47 @@
-import * as fs from "node:fs";
 import picomatch from "picomatch";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import * as path from "node:path";
 import { LspClient } from "./lsp-client.js";
 import { log, logError } from "./utils.js";
-import type { BridgeConfig } from "./types.js";
-import type { ServerCapabilities } from "vscode-languageserver-protocol";
+import type { MclspConfig } from "./types.js";
+import { getExtensionsForCommand, type ServerExtension } from "./extensions/index.js";
 
 interface ManagedLsp {
   client: LspClient;
   matcher: (path: string) => boolean;
+  command: string[];
 }
 
 export class LspManager {
   private lsps: ManagedLsp[] = [];
   private rootPath: string;
 
-  constructor(config: BridgeConfig, rootPath: string) {
+  constructor(config: MclspConfig, rootPath: string) {
     this.rootPath = rootPath;
 
     for (const [name, serverConfig] of Object.entries(config.servers)) {
       const client = new LspClient(name, serverConfig, rootPath);
       const matcher = picomatch(serverConfig.filePatterns);
-      this.lsps.push({ client, matcher });
+      this.lsps.push({ client, matcher, command: serverConfig.command });
     }
   }
 
-  async startAll(): Promise<void> {
-    // Filter out servers whose root markers don't match any files in the project
-    const eligible = this.lsps.filter((lsp) => {
-      const markers = lsp.client.rootMarkers;
-      if (!markers || markers.length === 0) return true;
-      const found = markers.some((m) => fs.existsSync(path.join(this.rootPath, m)));
-      if (!found) {
-        log(`Skipping "${lsp.client.name}" — no root markers found (needs: ${markers.join(", ")})`);
-      }
-      return found;
-    });
+  async ensureClientForFile(relativePath: string): Promise<LspClient | null> {
+    // Return already-running client if available
+    const running = this.getClientForFile(relativePath);
+    if (running) return running;
 
-    this.lsps = eligible;
+    // Find matching but not-yet-started server
+    const lsp = this.lsps.find((l) => !l.client.running && l.matcher(relativePath));
+    if (!lsp) return null;
 
-    if (this.lsps.length === 0) {
-      log("No LSP servers matched root markers");
-      return;
+    try {
+      await lsp.client.start();
+      return lsp.client;
+    } catch (err) {
+      logError(`Failed to start LSP "${lsp.client.name}"`, err);
+      return null;
     }
-
-    const results = await Promise.allSettled(
-      this.lsps.map(async (lsp) => {
-        try {
-          await lsp.client.start();
-        } catch (err) {
-          logError(`Failed to start LSP "${lsp.client.name}"`, err);
-          throw err;
-        }
-      })
-    );
-
-    const started = results.filter((r) => r.status === "fulfilled").length;
-    const failed = results.filter((r) => r.status === "rejected").length;
-
-    if (failed > 0) {
-      log(`${started} LSP(s) started, ${failed} failed`);
-    }
-
-    // Remove failed LSPs
-    this.lsps = this.lsps.filter((lsp) => lsp.client.running);
-
-    if (this.lsps.length === 0) {
-      log("All LSP servers failed to start");
-      return;
-    }
-
-    log(`${this.lsps.length} LSP server(s) running`);
   }
 
   getClientForFile(relativePath: string): LspClient | null {
@@ -93,27 +63,36 @@ export class LspManager {
     return this.lsps.filter((lsp) => lsp.client.running).map((lsp) => lsp.client);
   }
 
-  getAggregatedCapabilities(): ServerCapabilities {
-    const merged: ServerCapabilities = {};
+  getAllExtensions(): { extension: ServerExtension; client: LspClient }[] {
+    const results: { extension: ServerExtension; client: LspClient }[] = [];
     for (const lsp of this.lsps) {
-      if (!lsp.client.running || !lsp.client.capabilities) continue;
-      const caps = lsp.client.capabilities;
-
-      if (caps.definitionProvider) merged.definitionProvider = true;
-      if (caps.typeDefinitionProvider) merged.typeDefinitionProvider = true;
-      if (caps.implementationProvider) merged.implementationProvider = true;
-      if (caps.declarationProvider) merged.declarationProvider = true;
-      if (caps.referencesProvider) merged.referencesProvider = true;
-      if (caps.hoverProvider) merged.hoverProvider = true;
-      if (caps.signatureHelpProvider) merged.signatureHelpProvider = caps.signatureHelpProvider;
-      if (caps.documentSymbolProvider) merged.documentSymbolProvider = true;
-      if (caps.workspaceSymbolProvider) merged.workspaceSymbolProvider = true;
-      if (caps.codeActionProvider) merged.codeActionProvider = true;
-      if (caps.renameProvider) merged.renameProvider = caps.renameProvider;
-      if (caps.callHierarchyProvider) merged.callHierarchyProvider = true;
-      if (caps.typeHierarchyProvider) merged.typeHierarchyProvider = true;
+      if (!lsp.client.running) continue;
+      const extensions = getExtensionsForCommand(lsp.command);
+      for (const extension of extensions) {
+        results.push({ extension, client: lsp.client });
+      }
     }
-    return merged;
+    return results;
+  }
+
+  getAllConfiguredExtensions(): ServerExtension[] {
+    const extensions: ServerExtension[] = [];
+    for (const lsp of this.lsps) {
+      extensions.push(...getExtensionsForCommand(lsp.command));
+    }
+    return extensions;
+  }
+
+  getClientForExtensionTool(toolName: string): { client: LspClient; extension: ServerExtension } | null {
+    for (const lsp of this.lsps) {
+      if (!lsp.client.running) continue;
+      const extensions = getExtensionsForCommand(lsp.command);
+      const extension = extensions.find((e) => e.name === toolName);
+      if (extension) {
+        return { client: lsp.client, extension };
+      }
+    }
+    return null;
   }
 
   toUri(relativePath: string): string {

@@ -88,7 +88,7 @@ export class ToolHandler {
       case "diagnostics":
         return this.handleDiagnostics(input);
       default:
-        throw new Error(`Unknown tool: ${toolName}`);
+        return this.handleExtensionRequest(toolName, input);
     }
   }
 
@@ -105,7 +105,7 @@ export class ToolHandler {
   }
 
   private async getClientAndUri(file: string) {
-    const client = this.manager.getClientForFile(file);
+    const client = await this.manager.ensureClientForFile(file);
     if (!client) throw new Error(`No LSP server configured for file: ${file}`);
     const absPath = this.manager.toAbsolutePath(file);
     const uri = await client.ensureOpen(absPath);
@@ -474,6 +474,45 @@ export class ToolHandler {
     return allDiagnostics;
   }
 
+  // --- Extension Requests ---
+
+  private async handleExtensionRequest(toolName: string, input: ToolInput): Promise<unknown> {
+    const match = this.manager.getClientForExtensionTool(toolName);
+    if (!match) {
+      throw new Error(`Unknown tool: ${toolName}`);
+    }
+
+    const { client, extension } = match;
+    let params: unknown;
+
+    switch (extension.params) {
+      case "textDocument": {
+        const file = this.requireFile(input);
+        const absPath = this.manager.toAbsolutePath(file);
+        const uri = await client.ensureOpen(absPath);
+        params = { textDocument: { uri } };
+        break;
+      }
+      case "textDocumentPosition": {
+        const { file, line, col } = this.requirePosition(input);
+        const absPath = this.manager.toAbsolutePath(file);
+        const uri = await client.ensureOpen(absPath);
+        const pos = this.toPosition(line, col);
+        params = {
+          textDocument: { uri },
+          position: { line: pos.line, character: pos.character },
+        };
+        break;
+      }
+      case "custom": {
+        params = input;
+        break;
+      }
+    }
+
+    return client.sendCustomRequest(extension.method, params);
+  }
+
   // --- Helpers ---
 
   private formatWorkspaceEdit(edit: WorkspaceEdit): unknown {
@@ -496,16 +535,13 @@ export class ToolHandler {
       for (const change of edit.documentChanges) {
         if ("textDocument" in change && "edits" in change) {
           const file = this.manager.toRelativePath(change.textDocument.uri);
-          changes[file] = change.edits.map((e) => {
-            const textEdit = "range" in e ? e : e;
-            return {
-              range: {
-                start: { line: textEdit.range.start.line + 1, col: textEdit.range.start.character + 1 },
-                end: { line: textEdit.range.end.line + 1, col: textEdit.range.end.character + 1 },
-              },
-              newText: textEdit.newText,
-            };
-          });
+          changes[file] = change.edits.map((e) => ({
+            range: {
+              start: { line: e.range.start.line + 1, col: e.range.start.character + 1 },
+              end: { line: e.range.end.line + 1, col: e.range.end.character + 1 },
+            },
+            newText: e.newText,
+          }));
         }
       }
     }

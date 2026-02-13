@@ -1,4 +1,4 @@
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 import * as path from "node:path";
 
 const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
@@ -90,16 +90,4 @@ export function logError(message: string, error?: unknown): void {
 
 export function filePathToUri(filePath: string): string {
   return pathToFileURL(filePath).toString();
-}
-
-export function uriToFilePath(uri: string): string {
-  return fileURLToPath(uri);
-}
-
-export function toRelativePath(absolutePath: string, rootPath: string): string {
-  return path.relative(rootPath, absolutePath);
-}
-
-export function toAbsolutePath(relativePath: string, rootPath: string): string {
-  return path.resolve(rootPath, relativePath);
 }

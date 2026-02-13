@@ -6,10 +6,9 @@ export interface LspServerConfig {
   initializationOptions?: Record<string, unknown>;
   rootUri?: string;
   env?: Record<string, string>;
-  rootMarkers?: string[];
 }
 
-export interface BridgeConfig {
+export interface MclspConfig {
   servers: Record<string, LspServerConfig>;
 }
 

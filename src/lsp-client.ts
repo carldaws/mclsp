@@ -82,16 +82,19 @@ export class LspClient {
     this.rootPath = rootPath;
   }
 
-  get rootMarkers(): string[] | undefined {
-    return this.config.rootMarkers;
-  }
-
   get capabilities(): ServerCapabilities | null {
     return this._capabilities;
   }
 
   get running(): boolean {
     return this._running;
+  }
+
+  private requireConnection(): ProtocolConnection {
+    if (!this.connection) {
+      throw new Error(`[${this.name}] LSP connection is not available`);
+    }
+    return this.connection;
   }
 
   async start(): Promise<void> {
@@ -245,8 +248,10 @@ export class LspClient {
 
   async ensureOpen(filePath: string): Promise<string> {
     const uri = filePathToUri(filePath);
+
+    // Always close + reopen to get fresh disk content
     if (this.openDocuments.has(uri)) {
-      return uri;
+      this.notifyClose(filePath);
     }
 
     const content = await fs.promises.readFile(filePath, "utf-8");
@@ -254,7 +259,7 @@ export class LspClient {
     const doc: OpenDocument = { uri, languageId, version: 1, content };
     this.openDocuments.set(uri, doc);
 
-    this.connection!.sendNotification(DidOpenTextDocumentNotification.type, {
+    this.requireConnection().sendNotification(DidOpenTextDocumentNotification.type, {
       textDocument: {
         uri,
         languageId,
@@ -272,7 +277,7 @@ export class LspClient {
     const doc: OpenDocument = { uri, languageId, version: 1, content };
     this.openDocuments.set(uri, doc);
 
-    this.connection!.sendNotification(DidOpenTextDocumentNotification.type, {
+    this.requireConnection().sendNotification(DidOpenTextDocumentNotification.type, {
       textDocument: {
         uri,
         languageId,
@@ -294,7 +299,7 @@ export class LspClient {
     doc.version++;
     doc.content = content;
 
-    this.connection!.sendNotification(DidChangeTextDocumentNotification.type, {
+    this.requireConnection().sendNotification(DidChangeTextDocumentNotification.type, {
       textDocument: {
         uri,
         version: doc.version,
@@ -308,7 +313,7 @@ export class LspClient {
     const doc = this.openDocuments.get(uri);
     if (!doc) return;
 
-    this.connection!.sendNotification(DidSaveTextDocumentNotification.type, {
+    this.requireConnection().sendNotification(DidSaveTextDocumentNotification.type, {
       textDocument: { uri },
       text: doc.content,
     });
@@ -319,7 +324,7 @@ export class LspClient {
     const doc = this.openDocuments.get(uri);
     if (!doc) return;
 
-    this.connection!.sendNotification(DidCloseTextDocumentNotification.type, {
+    this.requireConnection().sendNotification(DidCloseTextDocumentNotification.type, {
       textDocument: { uri },
     });
     this.openDocuments.delete(uri);
@@ -329,35 +334,35 @@ export class LspClient {
   // --- LSP Requests ---
 
   async gotoDefinition(uri: string, line: number, character: number): Promise<Definition | LocationLink[] | null> {
-    return this.connection!.sendRequest(DefinitionRequest.type, {
+    return this.requireConnection().sendRequest(DefinitionRequest.type, {
       textDocument: { uri },
       position: { line, character },
     });
   }
 
   async gotoTypeDefinition(uri: string, line: number, character: number): Promise<Definition | LocationLink[] | null> {
-    return this.connection!.sendRequest(TypeDefinitionRequest.type, {
+    return this.requireConnection().sendRequest(TypeDefinitionRequest.type, {
       textDocument: { uri },
       position: { line, character },
     });
   }
 
   async gotoImplementation(uri: string, line: number, character: number): Promise<Definition | LocationLink[] | null> {
-    return this.connection!.sendRequest(ImplementationRequest.type, {
+    return this.requireConnection().sendRequest(ImplementationRequest.type, {
       textDocument: { uri },
       position: { line, character },
     });
   }
 
   async gotoDeclaration(uri: string, line: number, character: number): Promise<Declaration | LocationLink[] | null> {
-    return this.connection!.sendRequest(DeclarationRequest.type, {
+    return this.requireConnection().sendRequest(DeclarationRequest.type, {
       textDocument: { uri },
       position: { line, character },
     });
   }
 
   async findReferences(uri: string, line: number, character: number): Promise<Location[] | null> {
-    return this.connection!.sendRequest(ReferencesRequest.type, {
+    return this.requireConnection().sendRequest(ReferencesRequest.type, {
       textDocument: { uri },
       position: { line, character },
       context: { includeDeclaration: true },
@@ -365,31 +370,31 @@ export class LspClient {
   }
 
   async hover(uri: string, line: number, character: number): Promise<Hover | null> {
-    return this.connection!.sendRequest(HoverRequest.type, {
+    return this.requireConnection().sendRequest(HoverRequest.type, {
       textDocument: { uri },
       position: { line, character },
     });
   }
 
   async signatureHelp(uri: string, line: number, character: number): Promise<SignatureHelp | null> {
-    return this.connection!.sendRequest(SignatureHelpRequest.type, {
+    return this.requireConnection().sendRequest(SignatureHelpRequest.type, {
       textDocument: { uri },
       position: { line, character },
     });
   }
 
   async documentSymbols(uri: string): Promise<DocumentSymbol[] | SymbolInformation[] | null> {
-    return this.connection!.sendRequest(DocumentSymbolRequest.type, {
+    return this.requireConnection().sendRequest(DocumentSymbolRequest.type, {
       textDocument: { uri },
     });
   }
 
   async workspaceSymbols(query: string): Promise<WorkspaceSymbol[] | SymbolInformation[] | null> {
-    return this.connection!.sendRequest(WorkspaceSymbolRequest.type, { query });
+    return this.requireConnection().sendRequest(WorkspaceSymbolRequest.type, { query });
   }
 
   async codeActions(uri: string, range: Range, diagnostics: Diagnostic[]): Promise<(CodeAction | Command)[] | null> {
-    return this.connection!.sendRequest(CodeActionRequest.type, {
+    return this.requireConnection().sendRequest(CodeActionRequest.type, {
       textDocument: { uri },
       range,
       context: { diagnostics },
@@ -397,14 +402,14 @@ export class LspClient {
   }
 
   async prepareRename(uri: string, line: number, character: number): Promise<PrepareRenameResult | null> {
-    return this.connection!.sendRequest(PrepareRenameRequest.type, {
+    return this.requireConnection().sendRequest(PrepareRenameRequest.type, {
       textDocument: { uri },
       position: { line, character },
     });
   }
 
   async rename(uri: string, line: number, character: number, newName: string): Promise<WorkspaceEdit | null> {
-    return this.connection!.sendRequest(RenameRequest.type, {
+    return this.requireConnection().sendRequest(RenameRequest.type, {
       textDocument: { uri },
       position: { line, character },
       newName,
@@ -412,33 +417,39 @@ export class LspClient {
   }
 
   async prepareCallHierarchy(uri: string, line: number, character: number): Promise<CallHierarchyItem[] | null> {
-    return this.connection!.sendRequest(CallHierarchyPrepareRequest.type, {
+    return this.requireConnection().sendRequest(CallHierarchyPrepareRequest.type, {
       textDocument: { uri },
       position: { line, character },
     });
   }
 
   async callHierarchyIncoming(item: CallHierarchyItem): Promise<CallHierarchyIncomingCall[] | null> {
-    return this.connection!.sendRequest(CallHierarchyIncomingCallsRequest.type, { item });
+    return this.requireConnection().sendRequest(CallHierarchyIncomingCallsRequest.type, { item });
   }
 
   async callHierarchyOutgoing(item: CallHierarchyItem): Promise<CallHierarchyOutgoingCall[] | null> {
-    return this.connection!.sendRequest(CallHierarchyOutgoingCallsRequest.type, { item });
+    return this.requireConnection().sendRequest(CallHierarchyOutgoingCallsRequest.type, { item });
   }
 
   async prepareTypeHierarchy(uri: string, line: number, character: number): Promise<TypeHierarchyItem[] | null> {
-    return this.connection!.sendRequest(TypeHierarchyPrepareRequest.type, {
+    return this.requireConnection().sendRequest(TypeHierarchyPrepareRequest.type, {
       textDocument: { uri },
       position: { line, character },
     });
   }
 
   async typeHierarchySupertypes(item: TypeHierarchyItem): Promise<TypeHierarchyItem[] | null> {
-    return this.connection!.sendRequest(TypeHierarchySupertypesRequest.type, { item });
+    return this.requireConnection().sendRequest(TypeHierarchySupertypesRequest.type, { item });
   }
 
   async typeHierarchySubtypes(item: TypeHierarchyItem): Promise<TypeHierarchyItem[] | null> {
-    return this.connection!.sendRequest(TypeHierarchySubtypesRequest.type, { item });
+    return this.requireConnection().sendRequest(TypeHierarchySubtypesRequest.type, { item });
+  }
+
+  // --- Custom Requests ---
+
+  async sendCustomRequest(method: string, params: unknown): Promise<unknown> {
+    return this.requireConnection().sendRequest(method, params);
   }
 
   // --- Diagnostics ---
@@ -450,20 +461,21 @@ export class LspClient {
     }
 
     return new Promise<Diagnostic[]>((resolve) => {
-      const timer = setTimeout(() => {
-        const waiters = this.diagnosticsWaiters.get(uri);
-        if (waiters) {
-          const idx = waiters.indexOf(resolve);
-          if (idx >= 0) waiters.splice(idx, 1);
-          if (waiters.length === 0) this.diagnosticsWaiters.delete(uri);
-        }
-        resolve(cached?.diagnostics ?? []);
-      }, timeoutMs);
-
       const wrappedResolve = (diags: Diagnostic[]) => {
         clearTimeout(timer);
         resolve(diags);
       };
+
+      const timer = setTimeout(() => {
+        const waiters = this.diagnosticsWaiters.get(uri);
+        if (waiters) {
+          const idx = waiters.indexOf(wrappedResolve);
+          if (idx >= 0) waiters.splice(idx, 1);
+          if (waiters.length === 0) this.diagnosticsWaiters.delete(uri);
+        }
+        log(`[${this.name}] Diagnostics timeout for ${uri}, using cached`);
+        resolve(cached?.diagnostics ?? []);
+      }, timeoutMs);
 
       if (!this.diagnosticsWaiters.has(uri)) {
         this.diagnosticsWaiters.set(uri, []);
@@ -492,8 +504,8 @@ export class LspClient {
     try {
       await Promise.race([
         (async () => {
-          await this.connection!.sendRequest(ShutdownRequest.type);
-          this.connection!.sendNotification(ExitNotification.type);
+          await this.requireConnection().sendRequest(ShutdownRequest.type);
+          this.requireConnection().sendNotification(ExitNotification.type);
         })(),
         new Promise<void>((_, reject) =>
           setTimeout(() => reject(new Error("Shutdown timeout")), SHUTDOWN_TIMEOUT_MS)

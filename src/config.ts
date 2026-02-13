@@ -1,22 +1,35 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { parse as parseYaml } from "yaml";
 import { log } from "./utils.js";
-import type { BridgeConfig, LspServerConfig } from "./types.js";
+import type { MclspConfig, LspServerConfig } from "./types.js";
 
-const CONFIG_FILENAME = ".mclsp.json";
+const CONFIG_NAMES = [
+  "mclsp.yaml",
+  "mclsp.yml",
+  ".mclsp.yaml",
+  ".mclsp.yml",
+];
 
-export function loadConfig(projectRoot: string): BridgeConfig | null {
-  const configPath = path.join(projectRoot, CONFIG_FILENAME);
+export function loadConfig(projectRoot: string): MclspConfig | null {
+  let configPath: string | null = null;
+  for (const name of CONFIG_NAMES) {
+    const candidate = path.join(projectRoot, name);
+    if (fs.existsSync(candidate)) {
+      configPath = candidate;
+      break;
+    }
+  }
 
-  if (!fs.existsSync(configPath)) {
-    log(`No ${CONFIG_FILENAME} found in ${projectRoot} — starting with no LSP servers`);
+  if (!configPath) {
+    log(`No mclsp config found in ${projectRoot} (looked for ${CONFIG_NAMES.join(", ")}) — starting with no LSP servers`);
     return null;
   }
 
   let raw: unknown;
   try {
     const content = fs.readFileSync(configPath, "utf-8");
-    raw = JSON.parse(content);
+    raw = parseYaml(content);
   } catch (err) {
     throw new Error(`Failed to parse ${configPath}: ${err instanceof Error ? err.message : err}`);
   }
@@ -24,9 +37,9 @@ export function loadConfig(projectRoot: string): BridgeConfig | null {
   return validateConfig(raw);
 }
 
-function validateConfig(raw: unknown): BridgeConfig {
+function validateConfig(raw: unknown): MclspConfig {
   if (typeof raw !== "object" || raw === null) {
-    throw new Error("Config must be a JSON object");
+    throw new Error("Config must be a YAML object");
   }
 
   const obj = raw as Record<string, unknown>;
@@ -90,13 +103,6 @@ function validateServerConfig(name: string, raw: unknown): LspServerConfig {
       throw new Error(`Server "${name}": "env" must be an object`);
     }
     config.env = obj.env as Record<string, string>;
-  }
-
-  if (obj.rootMarkers !== undefined) {
-    if (!Array.isArray(obj.rootMarkers) || !obj.rootMarkers.every((m: unknown) => typeof m === "string")) {
-      throw new Error(`Server "${name}": "rootMarkers" must be an array of strings`);
-    }
-    config.rootMarkers = obj.rootMarkers as string[];
   }
 
   return config;
