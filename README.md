@@ -7,7 +7,7 @@ Configure one or more LSP servers, and mclsp exposes their features — go-to-de
 ## Quick Start
 
 ```bash
-claude mcp add mclsp -- npx -y mclsp
+claude mcp add lsp -- npx -y mclsp
 ```
 
 Then create a `mclsp.yaml` in your project root:
